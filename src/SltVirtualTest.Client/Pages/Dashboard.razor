@@ -1,0 +1,328 @@
+@page "/dashboard"
+@inject UserSession Session
+@inject ApiClient Api
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@using SltVirtualTest.Client.Models
+@using SltVirtualTest.Client.Validation
+@using SltVirtualTest.Shared.Dtos
+@using SltVirtualTest.Shared.Models
+
+<PageTitle>Dashboard</PageTitle>
+
+@if (!Session.IsAuthenticated)
+{
+    <p>Redirecting...</p>
+}
+else
+{
+    <div class="dashboard">
+        <header class="dashboard-header">
+            <div class="user-info">
+                <strong>@Session.CurrentUser!.Username</strong>
+                <span>Job: @Session.CurrentUser.JobTitle</span>
+                <span>ID: @Session.CurrentUser.JobId</span>
+                <span>@Session.CurrentUser.Employer</span>
+            </div>
+            <button class="btn btn-secondary btn-sm" @onclick="Logout">Logout</button>
+        </header>
+
+        <div class="dashboard-grid">
+            <aside class="palette">
+                <h3>Methods</h3>
+                @foreach (var group in StepCatalog.All.GroupBy(s => s.Module))
+                {
+                    <div class="palette-group">
+                        <h4>@group.Key</h4>
+                        @foreach (var def in group)
+                        {
+                            var stepDef = def;
+                            <div class="palette-item"
+                                 draggable="true"
+                                 ondragstart="sltExecutorDrag.start(event, '@GetDragKey(stepDef)')"
+                                 @ondragend="OnDragEnd"
+                                 @onclick="() => OnPaletteClick(stepDef)">
+                                @def.DisplayName
+                                @if (def.IncludesPowerOn)
+                                {
+                                    <span class="hint">includes power on</span>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </aside>
+
+            <main class="executor-panel">
+                <div class="executor-header">
+                    <h3>Executor</h3>
+                    <div class="executor-actions">
+                        <button class="btn btn-primary" disabled="@(!CanRun)" @onclick="RunTest">Run</button>
+                        <button class="btn btn-secondary" @onclick="ClearExecutor">Clear</button>
+                    </div>
+                </div>
+                <div class="executor-drop @(_isDragOver ? "drag-over" : "")"
+                     @ondragenter:preventDefault="true"
+                     @ondragover:preventDefault="true"
+                     @ondrop:preventDefault="true"
+                     @ondragenter="OnDragEnter"
+                     @ondragover="OnDragEnter"
+                     @ondragleave="OnDragLeave"
+                     @ondrop="OnDropAsync">
+                    @if (_steps.Count == 0)
+                    {
+                        <p class="drop-hint">Drag methods here or click a method to add.</p>
+                    }
+                    @for (var i = 0; i < _steps.Count; i++)
+                    {
+                        var step = _steps[i];
+                        var index = i;
+                        <div class="executor-step">
+                            <span class="step-index">@(index + 1)</span>
+                            <div class="step-body">
+                                <strong>@step.Module.@step.Method</strong>
+                                <span class="step-label">@step.DisplayName</span>
+                                @if (step.IncludesPowerOn)
+                                {
+                                    <span class="hint-inline">includes power on</span>
+                                }
+                                @if (step.RequiresTemperature)
+                                {
+                                    <div class="step-input">
+                                        <label>Temperature (°C, 20–100)</label>
+                                        <input type="number" class="form-control"
+                                               @bind="step.TemperatureInput"
+                                               @bind:event="oninput"
+                                               @bind:after="OnInputChanged" />
+                                    </div>
+                                }
+                                @if (step.RequiresMillimeters)
+                                {
+                                    <div class="step-input">
+                                        <label>Millimeters (+ right/up, − left/down)</label>
+                                        <input type="number" class="form-control"
+                                               @bind="step.MillimetersInput"
+                                               @bind:event="oninput"
+                                               @bind:after="OnInputChanged" />
+                                    </div>
+                                }
+                                @if (step.RequiresRotation)
+                                {
+                                    <div class="step-input">
+                                        <label>Degrees (+ clockwise, − counterclockwise)</label>
+                                        <input type="number" class="form-control"
+                                               @bind="step.RotationInput"
+                                               @bind:event="oninput"
+                                               @bind:after="OnInputChanged" />
+                                    </div>
+                                }
+                            </div>
+                            <div class="step-controls">
+                                <button type="button" class="btn-icon" disabled="@(index == 0)" @onclick="() => MoveStep(index, -1)">↑</button>
+                                <button type="button" class="btn-icon" disabled="@(index == _steps.Count - 1)" @onclick="() => MoveStep(index, 1)">↓</button>
+                                <button type="button" class="btn-icon danger" @onclick="() => RemoveStep(index)">×</button>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </main>
+
+            <aside class="output-panel">
+                <h3>Output Log</h3>
+                <div class="output-log">
+                    @if (_logEntries.Count == 0)
+                    {
+                        <p class="log-empty">Run a test to see output.</p>
+                    }
+                    @foreach (var entry in _logEntries)
+                    {
+                        <div class="log-entry @(entry.Success ? "success" : "failure")">
+                            <div class="log-meta">
+                                <span class="log-index">#@entry.Index</span>
+                                <span class="log-step">@entry.StepLabel</span>
+                                <span class="log-time">@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
+                            </div>
+                            <div class="log-message">@entry.Message</div>
+                        </div>
+                    }
+                    @if (_lastRunSuccess.HasValue)
+                    {
+                        <div class="run-status @(_lastRunSuccess.Value ? "passed" : "failed")">
+                            Test @(_lastRunSuccess.Value ? "PASSED" : "FAILED")
+                        </div>
+                    }
+                </div>
+            </aside>
+        </div>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(_popupMessage))
+{
+    <div class="modal-overlay">
+        <div class="modal">
+            <h3>@_popupTitle</h3>
+            <p>@_popupMessage</p>
+            <button class="btn btn-primary" @onclick="() => _popupMessage = null">OK</button>
+        </div>
+    </div>
+}
+
+@code {
+    private readonly List<ExecutorStepItem> _steps = new();
+    private readonly List<LogEntryDto> _logEntries = new();
+    private bool _isDragOver;
+    private bool _didDrag;
+    private string? _popupMessage;
+    private string _popupTitle = "Error";
+    private bool? _lastRunSuccess;
+    private bool CanRun => StepValidation.CanRun(_steps);
+
+    protected override void OnInitialized()
+    {
+        if (!Session.IsAuthenticated)
+            Nav.NavigateTo("/");
+    }
+
+    private static string GetDragKey(StepDefinitionDto def) =>
+        $"{def.Module}|{def.Method}";
+
+    private void OnDragEnter() => _isDragOver = true;
+
+    private void OnDragLeave() => _isDragOver = false;
+
+    private void OnDragEnd() => _didDrag = true;
+
+    private async Task OnDropAsync()
+    {
+        _isDragOver = false;
+        _didDrag = true;
+
+        var data = await JS.InvokeAsync<string>("sltExecutorDrag.readPayload");
+        await JS.InvokeVoidAsync("sltExecutorDrag.clear");
+
+        if (!TryParseDragKey(data, out var def))
+            return;
+
+        AddStep(def);
+    }
+
+    private void OnPaletteClick(StepDefinitionDto def)
+    {
+        if (_didDrag)
+        {
+            _didDrag = false;
+            return;
+        }
+
+        AddStep(def);
+    }
+
+    private static bool TryParseDragKey(string? data, out StepDefinitionDto def)
+    {
+        def = null!;
+        if (string.IsNullOrWhiteSpace(data))
+            return false;
+
+        var parts = data.Split('|', 2);
+        if (parts.Length != 2)
+            return false;
+        if (!Enum.TryParse<TestModule>(parts[0], out var module))
+            return false;
+        if (!Enum.TryParse<TestMethod>(parts[1], out var method))
+            return false;
+
+        var match = StepCatalog.All.FirstOrDefault(s => s.Module == module && s.Method == method);
+        if (match is null)
+            return false;
+
+        def = match;
+        return true;
+    }
+
+    private void AddStep(StepDefinitionDto def)
+    {
+        _steps.Add(new ExecutorStepItem
+        {
+            Module = def.Module,
+            Method = def.Method,
+            DisplayName = def.DisplayName,
+            RequiresTemperature = def.RequiresTemperature,
+            RequiresMillimeters = def.RequiresMillimeters,
+            RequiresRotation = def.RequiresRotation,
+            IncludesPowerOn = def.IncludesPowerOn
+        });
+    }
+
+    private void RemoveStep(int index) => _steps.RemoveAt(index);
+
+    private void MoveStep(int index, int delta)
+    {
+        var newIndex = index + delta;
+        if (newIndex < 0 || newIndex >= _steps.Count) return;
+        var item = _steps[index];
+        _steps.RemoveAt(index);
+        _steps.Insert(newIndex, item);
+    }
+
+    private void ClearExecutor()
+    {
+        _steps.Clear();
+        _logEntries.Clear();
+        _lastRunSuccess = null;
+    }
+
+    private void OnInputChanged() => StateHasChanged();
+
+    private async Task RunTest()
+    {
+        if (!CanRun)
+        {
+            if (_steps.Any(StepValidation.HasInvalidTemperature))
+            {
+                _popupTitle = "Invalid temperature";
+                _popupMessage = "Temperature must be an integer from 20 to 100 °C.";
+            }
+            else
+            {
+                _popupTitle = "Cannot run";
+                _popupMessage = "Fill in all required inputs with valid values before running.";
+            }
+            return;
+        }
+
+        _logEntries.Clear();
+        _lastRunSuccess = null;
+
+        var dtos = _steps.Select(s => new ExecutorStepDto(
+            s.Module,
+            s.Method,
+            s.RequiresTemperature && int.TryParse(s.TemperatureInput, out var t) ? t : null,
+            s.RequiresMillimeters && int.TryParse(s.MillimetersInput, out var m) ? m : null,
+            s.RequiresRotation && int.TryParse(s.RotationInput, out var r) ? r : null)).ToList();
+
+        try
+        {
+            var result = await Api.ExecuteTestAsync(new(Session.CurrentUser!.Id, dtos));
+            _logEntries.AddRange(result.LogEntries);
+            _lastRunSuccess = result.Success;
+
+            if (!string.IsNullOrEmpty(result.FailurePopupMessage))
+            {
+                _popupTitle = "Test failed";
+                _popupMessage = result.FailurePopupMessage;
+            }
+        }
+        catch (Exception ex)
+        {
+            _popupTitle = "Error";
+            _popupMessage = ex.Message;
+        }
+    }
+
+    private void Logout()
+    {
+        Session.Clear();
+        Nav.NavigateTo("/");
+    }
+}

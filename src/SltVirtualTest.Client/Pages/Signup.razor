@@ -1,0 +1,100 @@
+@page "/signup"
+@inject ApiClient Api
+@inject UserSession Session
+@inject NavigationManager Nav
+
+<PageTitle>Sign Up</PageTitle>
+
+<div class="auth-page">
+    <div class="auth-card">
+        <h2>Sign Up</h2>
+        <EditForm Model="_model" OnValidSubmit="HandleSignUp">
+            <div class="form-group">
+                <label>Username</label>
+                <InputText class="form-control" @bind-Value="_model.Username" />
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <InputText type="password" class="form-control" @bind-Value="_model.Password" />
+            </div>
+            <div class="form-group">
+                <label>Job ID</label>
+                <InputText class="form-control" @bind-Value="_model.JobId" />
+            </div>
+            <div class="form-group">
+                <label>Employer</label>
+                <InputText class="form-control" @bind-Value="_model.Employer" />
+            </div>
+            <div class="form-group">
+                <label>Job Title</label>
+                <InputText class="form-control" @bind-Value="_model.JobTitle" />
+            </div>
+            <button type="submit" class="btn btn-primary" disabled="@_busy">Sign Up</button>
+        </EditForm>
+        <p class="auth-footer">Have an account? <a href="/login">Login</a></p>
+        <p class="auth-footer"><a href="/">Back to home</a></p>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="modal-overlay">
+        <div class="modal">
+            <h3>Error</h3>
+            <p>@_error</p>
+            <button class="btn btn-primary" @onclick="() => _error = null">OK</button>
+        </div>
+    </div>
+}
+
+@code {
+    private readonly SignUpModel _model = new();
+    private string? _error;
+    private bool _busy;
+
+    private async Task HandleSignUp()
+    {
+        if (string.IsNullOrWhiteSpace(_model.Username) ||
+            string.IsNullOrWhiteSpace(_model.Password) ||
+            string.IsNullOrWhiteSpace(_model.JobId) ||
+            string.IsNullOrWhiteSpace(_model.Employer) ||
+            string.IsNullOrWhiteSpace(_model.JobTitle))
+        {
+            _error = "All fields are required.";
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var result = await Api.SignUpAsync(new(
+                _model.Username.Trim(),
+                _model.Password,
+                _model.JobId.Trim(),
+                _model.Employer.Trim(),
+                _model.JobTitle.Trim()));
+
+            if (!result.Success || result.User is null)
+            {
+                _error = result.ErrorMessage ?? "Sign up failed.";
+                return;
+            }
+
+            Session.SetUser(result.User);
+            Nav.NavigateTo("/dashboard");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private class SignUpModel
+    {
+        public string Username { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+        public string JobId { get; set; } = string.Empty;
+        public string Employer { get; set; } = string.Empty;
+        public string JobTitle { get; set; } = string.Empty;
+    }
+}
