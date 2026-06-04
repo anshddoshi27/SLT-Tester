@@ -32,22 +32,30 @@ else
                 <h3>Methods</h3>
                 @foreach (var group in StepCatalog.All.GroupBy(s => s.Module))
                 {
+                    var mod = group.Key;
+                    var isOpen = _expandedGroups.Contains(mod);
                     <div class="palette-group">
-                        <h4>@group.Key</h4>
-                        @foreach (var def in group)
+                        <h4 @onclick="() => ToggleGroup(mod)">
+                            @mod
+                            <span class="palette-group-chevron @(isOpen ? "open" : "")">▶</span>
+                        </h4>
+                        @if (isOpen)
                         {
-                            var stepDef = def;
-                            <div class="palette-item"
-                                 draggable="true"
-                                 ondragstart="sltExecutorDrag.start(event, '@GetDragKey(stepDef)')"
-                                 @ondragend="OnDragEnd"
-                                 @onclick="() => OnPaletteClick(stepDef)">
-                                @def.DisplayName
-                                @if (def.IncludesPowerOn)
-                                {
-                                    <span class="hint">includes power on</span>
-                                }
-                            </div>
+                            @foreach (var def in group)
+                            {
+                                var stepDef = def;
+                                <div class="palette-item"
+                                     draggable="true"
+                                     ondragstart="sltExecutorDrag.start(event, '@GetDragKey(stepDef)')"
+                                     @ondragend="OnDragEnd"
+                                     @onclick="() => OnPaletteClick(stepDef)">
+                                    @def.DisplayName
+                                    @if (def.IncludesPowerOn)
+                                    {
+                                        <span class="hint">includes power on</span>
+                                    }
+                                </div>
+                            }
                         }
                     </div>
                 }
@@ -61,6 +69,19 @@ else
                         <button class="btn btn-secondary" @onclick="ClearExecutor">Clear</button>
                     </div>
                 </div>
+
+                @if (_logicErrors.Count > 0)
+                {
+                    <div class="logic-error-banner">
+                        <span class="logic-error-icon">⚠</span>
+                        <span>@_logicErrors[0].Message</span>
+                        @if (_logicErrors.Count > 1)
+                        {
+                            <span class="logic-error-more">+@(_logicErrors.Count - 1) more error@(_logicErrors.Count > 2 ? "s" : "")</span>
+                        }
+                    </div>
+                }
+
                 <div class="executor-drop @(_isDragOver ? "drag-over" : "")"
                      @ondragenter:preventDefault="true"
                      @ondragover:preventDefault="true"
@@ -77,14 +98,20 @@ else
                     {
                         var step = _steps[i];
                         var index = i;
-                        <div class="executor-step">
-                            <span class="step-index">@(index + 1)</span>
+                        var stepError = _logicErrors.FirstOrDefault(e => e.StepIndex == index);
+                        var hasError = stepError != default;
+                        <div class="executor-step @(hasError ? "step-error" : "")">
+                            <span class="step-index @(hasError ? "step-index-error" : "")">@(index + 1)</span>
                             <div class="step-body">
                                 <strong>@step.Module.@step.Method</strong>
                                 <span class="step-label">@step.DisplayName</span>
                                 @if (step.IncludesPowerOn)
                                 {
                                     <span class="hint-inline">includes power on</span>
+                                }
+                                @if (hasError)
+                                {
+                                    <div class="step-error-msg">@stepError.Message</div>
                                 }
                                 @if (step.RequiresTemperature)
                                 {
@@ -112,6 +139,26 @@ else
                                         <label>Degrees (+ clockwise, − counterclockwise)</label>
                                         <input type="number" class="form-control"
                                                @bind="step.RotationInput"
+                                               @bind:event="oninput"
+                                               @bind:after="OnInputChanged" />
+                                    </div>
+                                }
+                                @if (step.RequiresVolts)
+                                {
+                                    <div class="step-input">
+                                        <label>Voltage (V, 1–10)</label>
+                                        <input type="number" class="form-control"
+                                               @bind="step.VoltsInput"
+                                               @bind:event="oninput"
+                                               @bind:after="OnInputChanged" />
+                                    </div>
+                                }
+                                @if (step.RequiresAmps)
+                                {
+                                    <div class="step-input">
+                                        <label>Current (A, 1–10)</label>
+                                        <input type="number" class="form-control"
+                                               @bind="step.AmpsInput"
                                                @bind:event="oninput"
                                                @bind:after="OnInputChanged" />
                                     </div>
@@ -159,29 +206,44 @@ else
 
 @if (!string.IsNullOrEmpty(_popupMessage))
 {
-    <div class="modal-overlay">
-        <div class="modal">
-            <h3>@_popupTitle</h3>
-            <p>@_popupMessage</p>
-            <button class="btn btn-primary" @onclick="() => _popupMessage = null">OK</button>
-        </div>
+    <div class="error-popup">
+        <h3 class="error-popup-title">@_popupTitle</h3>
+        <p class="error-popup-message">@_popupMessage</p>
+        <button class="btn btn-secondary" @onclick="DismissPopup">Cancel</button>
     </div>
 }
 
 @code {
     private readonly List<ExecutorStepItem> _steps = new();
     private readonly List<LogEntryDto> _logEntries = new();
+    private List<(int StepIndex, string Message)> _logicErrors = new();
     private bool _isDragOver;
     private bool _didDrag;
     private string? _popupMessage;
     private string _popupTitle = "Error";
     private bool? _lastRunSuccess;
-    private bool CanRun => StepValidation.CanRun(_steps);
+    private readonly HashSet<TestModule> _expandedGroups = new();
+
+    private void ToggleGroup(TestModule module)
+    {
+        if (!_expandedGroups.Remove(module))
+            _expandedGroups.Add(module);
+    }
+
+    private bool CanRun =>
+        _steps.Count > 0 &&
+        _logicErrors.Count == 0 &&
+        StepValidation.CanRun(_steps);
 
     protected override void OnInitialized()
     {
         if (!Session.IsAuthenticated)
             Nav.NavigateTo("/");
+    }
+
+    private void ValidateLogic()
+    {
+        _logicErrors = StepSequenceValidator.Validate(_steps);
     }
 
     private static string GetDragKey(StepDefinitionDto def) =>
@@ -250,11 +312,18 @@ else
             RequiresTemperature = def.RequiresTemperature,
             RequiresMillimeters = def.RequiresMillimeters,
             RequiresRotation = def.RequiresRotation,
-            IncludesPowerOn = def.IncludesPowerOn
+            IncludesPowerOn = def.IncludesPowerOn,
+            RequiresVolts = def.RequiresVolts,
+            RequiresAmps = def.RequiresAmps
         });
+        ValidateLogic();
     }
 
-    private void RemoveStep(int index) => _steps.RemoveAt(index);
+    private void RemoveStep(int index)
+    {
+        _steps.RemoveAt(index);
+        ValidateLogic();
+    }
 
     private void MoveStep(int index, int delta)
     {
@@ -263,22 +332,33 @@ else
         var item = _steps[index];
         _steps.RemoveAt(index);
         _steps.Insert(newIndex, item);
+        ValidateLogic();
     }
 
     private void ClearExecutor()
     {
         _steps.Clear();
+        _logicErrors.Clear();
         _logEntries.Clear();
         _lastRunSuccess = null;
     }
 
-    private void OnInputChanged() => StateHasChanged();
+    private void OnInputChanged()
+    {
+        ValidateLogic();
+        StateHasChanged();
+    }
 
     private async Task RunTest()
     {
         if (!CanRun)
         {
-            if (_steps.Any(StepValidation.HasInvalidTemperature))
+            if (_logicErrors.Count > 0)
+            {
+                _popupTitle = "Logic error in sequence";
+                _popupMessage = _logicErrors[0].Message;
+            }
+            else if (_steps.Any(StepValidation.HasInvalidTemperature))
             {
                 _popupTitle = "Invalid temperature";
                 _popupMessage = "Temperature must be an integer from 20 to 100 °C.";
@@ -299,7 +379,9 @@ else
             s.Method,
             s.RequiresTemperature && int.TryParse(s.TemperatureInput, out var t) ? t : null,
             s.RequiresMillimeters && int.TryParse(s.MillimetersInput, out var m) ? m : null,
-            s.RequiresRotation && int.TryParse(s.RotationInput, out var r) ? r : null)).ToList();
+            s.RequiresRotation && int.TryParse(s.RotationInput, out var r) ? r : null,
+            s.RequiresVolts && int.TryParse(s.VoltsInput, out var v) ? v : null,
+            s.RequiresAmps && int.TryParse(s.AmpsInput, out var a) ? a : null)).ToList();
 
         try
         {
@@ -307,10 +389,14 @@ else
             _logEntries.AddRange(result.LogEntries);
             _lastRunSuccess = result.Success;
 
-            if (!string.IsNullOrEmpty(result.FailurePopupMessage))
+            if (!result.Success)
             {
                 _popupTitle = "Test failed";
-                _popupMessage = result.FailurePopupMessage;
+                var failedStep = result.LogEntries.FirstOrDefault(e => !e.Success);
+                _popupMessage = result.FailurePopupMessage
+                    ?? failedStep?.Message
+                    ?? "Test run failed.";
+                StateHasChanged();
             }
         }
         catch (Exception ex)
@@ -318,6 +404,12 @@ else
             _popupTitle = "Error";
             _popupMessage = ex.Message;
         }
+    }
+
+    private void DismissPopup()
+    {
+        _popupMessage = null;
+        StateHasChanged();
     }
 
     private void Logout()

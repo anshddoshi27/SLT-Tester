@@ -12,8 +12,12 @@ public class ExecutorStepItem
     public bool RequiresMillimeters { get; set; }
     public bool RequiresRotation { get; set; }
     public bool IncludesPowerOn { get; set; }
+    public bool RequiresVolts { get; set; }
+    public bool RequiresAmps { get; set; }
 
     public string TemperatureInput { get; set; } = string.Empty;
     public string MillimetersInput { get; set; } = string.Empty;
     public string RotationInput { get; set; } = string.Empty;
+    public string VoltsInput { get; set; } = string.Empty;
+    public string AmpsInput { get; set; } = string.Empty;
 }

@@ -4,5 +4,7 @@ public enum TestModule
 {
     Thermal,
     Handler,
-    Device
+    Device,
+    Mlt,
+    PowerSupply
 }

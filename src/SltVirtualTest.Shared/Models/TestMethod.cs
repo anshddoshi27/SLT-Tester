@@ -11,5 +11,28 @@ public enum TestMethod
     MoveUp,
     MoveDown,
     Rotation,
-    ReadTemperature
+    ReadTemperature,
+    PickUpDevice,
+    ReleaseDevice,
+    MoveToBoard,
+    MoveToDevice,
+    MoveToOrigin,
+    // PowerSupply
+    SupplyPower,
+    SupplyCurrent,
+    // MLT
+    StartTransmission,
+    EndTransmission,
+    ReceiveSms,
+    ReceiveVoiceCall,
+    ReceiveYoutubeRequest,
+    StopSpeedTest,
+    // Device (network)
+    ConnectToNetwork,
+    SendSms,
+    MakeVoiceCall,
+    EndVoiceCall,
+    GoOnYoutube,
+    GetOffYoutube,
+    StartSpeedTest
 }
