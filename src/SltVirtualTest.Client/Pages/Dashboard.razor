@@ -28,6 +28,8 @@ else
         </header>
 
         <div class="dashboard-grid">
+
+            <!-- LEFT: step palette -->
             <aside class="palette">
                 <h3>Methods</h3>
                 @foreach (var group in StepCatalog.All.GroupBy(s => s.Module))
@@ -61,145 +63,156 @@ else
                 }
             </aside>
 
-            <main class="executor-panel">
-                <div class="executor-header">
-                    <h3>Executor</h3>
-                    <div class="executor-actions">
-                        <button class="btn btn-primary" disabled="@(!CanRun)" @onclick="RunTest">Run</button>
-                        <button class="btn btn-secondary" @onclick="ClearExecutor">Clear</button>
+            <!-- CENTER: executor (top) + output log (bottom) -->
+            <div class="center-col">
+                <main class="executor-panel">
+                    <div class="executor-header">
+                        <h3>Executor</h3>
+                        <div class="executor-actions">
+                            <button class="btn btn-primary" disabled="@(!CanRun || _isReplaying)" @onclick="RunTest">
+                                @(_isReplaying ? "Replaying…" : "Run")
+                            </button>
+                            <button class="btn btn-secondary" @onclick="ClearExecutor">Clear</button>
+                        </div>
                     </div>
-                </div>
 
-                @if (_logicErrors.Count > 0)
-                {
-                    <div class="logic-error-banner">
-                        <span class="logic-error-icon">⚠</span>
-                        <span>@_logicErrors[0].Message</span>
-                        @if (_logicErrors.Count > 1)
+                    @if (_logicErrors.Count > 0)
+                    {
+                        <div class="logic-error-banner">
+                            <span class="logic-error-icon">⚠</span>
+                            <span>@_logicErrors[0].Message</span>
+                            @if (_logicErrors.Count > 1)
+                            {
+                                <span class="logic-error-more">+@(_logicErrors.Count - 1) more error@(_logicErrors.Count > 2 ? "s" : "")</span>
+                            }
+                        </div>
+                    }
+
+                    <div class="executor-drop @(_isDragOver ? "drag-over" : "")"
+                         @ondragenter:preventDefault="true"
+                         @ondragover:preventDefault="true"
+                         @ondrop:preventDefault="true"
+                         @ondragenter="OnDragEnter"
+                         @ondragover="OnDragEnter"
+                         @ondragleave="OnDragLeave"
+                         @ondrop="OnDropAsync">
+                        @if (_steps.Count == 0)
                         {
-                            <span class="logic-error-more">+@(_logicErrors.Count - 1) more error@(_logicErrors.Count > 2 ? "s" : "")</span>
+                            <p class="drop-hint">Drag methods here or click a method to add.</p>
+                        }
+                        @for (var i = 0; i < _steps.Count; i++)
+                        {
+                            var step = _steps[i];
+                            var index = i;
+                            var stepError = _logicErrors.FirstOrDefault(e => e.StepIndex == index);
+                            var hasError = stepError != default;
+                            <div class="executor-step @(hasError ? "step-error" : "") @(_replayIndex == index && _isReplaying ? "step-replaying" : "") @(!_isReplaying || _replayIndex != index ? (_completedSteps.Contains(index) ? "step-success" : "") : "")">
+                                <span class="step-index @(hasError ? "step-index-error" : "")">@(index + 1)</span>
+                                <div class="step-body">
+                                    <strong>@step.Module.@step.Method</strong>
+                                    <span class="step-label">@step.DisplayName</span>
+                                    @if (step.IncludesPowerOn)
+                                    {
+                                        <span class="hint-inline">includes power on</span>
+                                    }
+                                    @if (hasError)
+                                    {
+                                        <div class="step-error-msg">@stepError.Message</div>
+                                    }
+                                    @if (step.RequiresTemperature)
+                                    {
+                                        <div class="step-input">
+                                            <label>Temperature (°C, 20–100)</label>
+                                            <input type="number" class="form-control"
+                                                   @bind="step.TemperatureInput"
+                                                   @bind:event="oninput"
+                                                   @bind:after="OnInputChanged" />
+                                        </div>
+                                    }
+                                    @if (step.RequiresMillimeters)
+                                    {
+                                        <div class="step-input">
+                                            <label>Millimeters (+ right/up, − left/down)</label>
+                                            <input type="number" class="form-control"
+                                                   @bind="step.MillimetersInput"
+                                                   @bind:event="oninput"
+                                                   @bind:after="OnInputChanged" />
+                                        </div>
+                                    }
+                                    @if (step.RequiresRotation)
+                                    {
+                                        <div class="step-input">
+                                            <label>Degrees (+ clockwise, − counterclockwise)</label>
+                                            <input type="number" class="form-control"
+                                                   @bind="step.RotationInput"
+                                                   @bind:event="oninput"
+                                                   @bind:after="OnInputChanged" />
+                                        </div>
+                                    }
+                                    @if (step.RequiresVolts)
+                                    {
+                                        <div class="step-input">
+                                            <label>Voltage (V, 1–10)</label>
+                                            <input type="number" class="form-control"
+                                                   @bind="step.VoltsInput"
+                                                   @bind:event="oninput"
+                                                   @bind:after="OnInputChanged" />
+                                        </div>
+                                    }
+                                    @if (step.RequiresAmps)
+                                    {
+                                        <div class="step-input">
+                                            <label>Current (A, 1–10)</label>
+                                            <input type="number" class="form-control"
+                                                   @bind="step.AmpsInput"
+                                                   @bind:event="oninput"
+                                                   @bind:after="OnInputChanged" />
+                                        </div>
+                                    }
+                                </div>
+                                <div class="step-controls">
+                                    <button type="button" class="btn-icon" disabled="@(index == 0)" @onclick="() => MoveStep(index, -1)">↑</button>
+                                    <button type="button" class="btn-icon" disabled="@(index == _steps.Count - 1)" @onclick="() => MoveStep(index, 1)">↓</button>
+                                    <button type="button" class="btn-icon danger" @onclick="() => RemoveStep(index)">×</button>
+                                </div>
+                            </div>
                         }
                     </div>
-                }
+                </main>
 
-                <div class="executor-drop @(_isDragOver ? "drag-over" : "")"
-                     @ondragenter:preventDefault="true"
-                     @ondragover:preventDefault="true"
-                     @ondrop:preventDefault="true"
-                     @ondragenter="OnDragEnter"
-                     @ondragover="OnDragEnter"
-                     @ondragleave="OnDragLeave"
-                     @ondrop="OnDropAsync">
-                    @if (_steps.Count == 0)
-                    {
-                        <p class="drop-hint">Drag methods here or click a method to add.</p>
-                    }
-                    @for (var i = 0; i < _steps.Count; i++)
-                    {
-                        var step = _steps[i];
-                        var index = i;
-                        var stepError = _logicErrors.FirstOrDefault(e => e.StepIndex == index);
-                        var hasError = stepError != default;
-                        <div class="executor-step @(hasError ? "step-error" : "")">
-                            <span class="step-index @(hasError ? "step-index-error" : "")">@(index + 1)</span>
-                            <div class="step-body">
-                                <strong>@step.Module.@step.Method</strong>
-                                <span class="step-label">@step.DisplayName</span>
-                                @if (step.IncludesPowerOn)
-                                {
-                                    <span class="hint-inline">includes power on</span>
-                                }
-                                @if (hasError)
-                                {
-                                    <div class="step-error-msg">@stepError.Message</div>
-                                }
-                                @if (step.RequiresTemperature)
-                                {
-                                    <div class="step-input">
-                                        <label>Temperature (°C, 20–100)</label>
-                                        <input type="number" class="form-control"
-                                               @bind="step.TemperatureInput"
-                                               @bind:event="oninput"
-                                               @bind:after="OnInputChanged" />
-                                    </div>
-                                }
-                                @if (step.RequiresMillimeters)
-                                {
-                                    <div class="step-input">
-                                        <label>Millimeters (+ right/up, − left/down)</label>
-                                        <input type="number" class="form-control"
-                                               @bind="step.MillimetersInput"
-                                               @bind:event="oninput"
-                                               @bind:after="OnInputChanged" />
-                                    </div>
-                                }
-                                @if (step.RequiresRotation)
-                                {
-                                    <div class="step-input">
-                                        <label>Degrees (+ clockwise, − counterclockwise)</label>
-                                        <input type="number" class="form-control"
-                                               @bind="step.RotationInput"
-                                               @bind:event="oninput"
-                                               @bind:after="OnInputChanged" />
-                                    </div>
-                                }
-                                @if (step.RequiresVolts)
-                                {
-                                    <div class="step-input">
-                                        <label>Voltage (V, 1–10)</label>
-                                        <input type="number" class="form-control"
-                                               @bind="step.VoltsInput"
-                                               @bind:event="oninput"
-                                               @bind:after="OnInputChanged" />
-                                    </div>
-                                }
-                                @if (step.RequiresAmps)
-                                {
-                                    <div class="step-input">
-                                        <label>Current (A, 1–10)</label>
-                                        <input type="number" class="form-control"
-                                               @bind="step.AmpsInput"
-                                               @bind:event="oninput"
-                                               @bind:after="OnInputChanged" />
-                                    </div>
-                                }
+                <aside class="output-panel">
+                    <h3>Output Log</h3>
+                    <div class="output-log">
+                        @if (_logEntries.Count == 0)
+                        {
+                            <p class="log-empty">Run a test to see output.</p>
+                        }
+                        @foreach (var entry in _logEntries)
+                        {
+                            <div class="log-entry @(entry.Success ? "success" : "failure")">
+                                <div class="log-meta">
+                                    <span class="log-index">#@entry.Index</span>
+                                    <span class="log-step">@entry.StepLabel</span>
+                                    <span class="log-time">@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
+                                </div>
+                                <div class="log-message">@entry.Message</div>
                             </div>
-                            <div class="step-controls">
-                                <button type="button" class="btn-icon" disabled="@(index == 0)" @onclick="() => MoveStep(index, -1)">↑</button>
-                                <button type="button" class="btn-icon" disabled="@(index == _steps.Count - 1)" @onclick="() => MoveStep(index, 1)">↓</button>
-                                <button type="button" class="btn-icon danger" @onclick="() => RemoveStep(index)">×</button>
+                        }
+                        @if (_lastRunSuccess.HasValue)
+                        {
+                            <div class="run-status @(_lastRunSuccess.Value ? "passed" : "failed")">
+                                Test @(_lastRunSuccess.Value ? "PASSED" : "FAILED")
                             </div>
-                        </div>
-                    }
-                </div>
-            </main>
+                        }
+                    </div>
+                </aside>
+            </div>
 
-            <aside class="output-panel">
-                <h3>Output Log</h3>
-                <div class="output-log">
-                    @if (_logEntries.Count == 0)
-                    {
-                        <p class="log-empty">Run a test to see output.</p>
-                    }
-                    @foreach (var entry in _logEntries)
-                    {
-                        <div class="log-entry @(entry.Success ? "success" : "failure")">
-                            <div class="log-meta">
-                                <span class="log-index">#@entry.Index</span>
-                                <span class="log-step">@entry.StepLabel</span>
-                                <span class="log-time">@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</span>
-                            </div>
-                            <div class="log-message">@entry.Message</div>
-                        </div>
-                    }
-                    @if (_lastRunSuccess.HasValue)
-                    {
-                        <div class="run-status @(_lastRunSuccess.Value ? "passed" : "failed")">
-                            Test @(_lastRunSuccess.Value ? "PASSED" : "FAILED")
-                        </div>
-                    }
-                </div>
+            <!-- RIGHT: animation panel -->
+            <aside class="animation-panel">
+                <AnimationPanel State="@_animState" ActiveEvent="@_animEvent" />
             </aside>
+
         </div>
     </div>
 }
@@ -223,6 +236,13 @@ else
     private string _popupTitle = "Error";
     private bool? _lastRunSuccess;
     private readonly HashSet<TestModule> _expandedGroups = new();
+
+    // Animation state
+    private AnimState _animState = new();
+    private string? _animEvent;
+    private bool _isReplaying;
+    private int _replayIndex = -1;
+    private readonly HashSet<int> _completedSteps = new();
 
     private void ToggleGroup(TestModule module)
     {
@@ -250,54 +270,35 @@ else
         $"{def.Module}|{def.Method}";
 
     private void OnDragEnter() => _isDragOver = true;
-
     private void OnDragLeave() => _isDragOver = false;
-
     private void OnDragEnd() => _didDrag = true;
 
     private async Task OnDropAsync()
     {
         _isDragOver = false;
         _didDrag = true;
-
         var data = await JS.InvokeAsync<string>("sltExecutorDrag.readPayload");
         await JS.InvokeVoidAsync("sltExecutorDrag.clear");
-
-        if (!TryParseDragKey(data, out var def))
-            return;
-
+        if (!TryParseDragKey(data, out var def)) return;
         AddStep(def);
     }
 
     private void OnPaletteClick(StepDefinitionDto def)
     {
-        if (_didDrag)
-        {
-            _didDrag = false;
-            return;
-        }
-
+        if (_didDrag) { _didDrag = false; return; }
         AddStep(def);
     }
 
     private static bool TryParseDragKey(string? data, out StepDefinitionDto def)
     {
         def = null!;
-        if (string.IsNullOrWhiteSpace(data))
-            return false;
-
+        if (string.IsNullOrWhiteSpace(data)) return false;
         var parts = data.Split('|', 2);
-        if (parts.Length != 2)
-            return false;
-        if (!Enum.TryParse<TestModule>(parts[0], out var module))
-            return false;
-        if (!Enum.TryParse<TestMethod>(parts[1], out var method))
-            return false;
-
+        if (parts.Length != 2) return false;
+        if (!Enum.TryParse<TestModule>(parts[0], out var module)) return false;
+        if (!Enum.TryParse<TestMethod>(parts[1], out var method)) return false;
         var match = StepCatalog.All.FirstOrDefault(s => s.Module == module && s.Method == method);
-        if (match is null)
-            return false;
-
+        if (match is null) return false;
         def = match;
         return true;
     }
@@ -341,6 +342,10 @@ else
         _logicErrors.Clear();
         _logEntries.Clear();
         _lastRunSuccess = null;
+        _completedSteps.Clear();
+        _animState = new AnimState();
+        _animEvent = null;
+        _replayIndex = -1;
     }
 
     private void OnInputChanged()
@@ -375,8 +380,7 @@ else
         _lastRunSuccess = null;
 
         var dtos = _steps.Select(s => new ExecutorStepDto(
-            s.Module,
-            s.Method,
+            s.Module, s.Method,
             s.RequiresTemperature && int.TryParse(s.TemperatureInput, out var t) ? t : null,
             s.RequiresMillimeters && int.TryParse(s.MillimetersInput, out var m) ? m : null,
             s.RequiresRotation && int.TryParse(s.RotationInput, out var r) ? r : null,
@@ -393,16 +397,193 @@ else
             {
                 _popupTitle = "Test failed";
                 var failedStep = result.LogEntries.FirstOrDefault(e => !e.Success);
-                _popupMessage = result.FailurePopupMessage
-                    ?? failedStep?.Message
-                    ?? "Test run failed.";
+                _popupMessage = result.FailurePopupMessage ?? failedStep?.Message ?? "Test run failed.";
                 StateHasChanged();
             }
+
+            _ = ReplayAsync(_steps.ToList(), result.LogEntries.ToList());
         }
         catch (Exception ex)
         {
             _popupTitle = "Error";
             _popupMessage = ex.Message;
+        }
+    }
+
+    private async Task ReplayAsync(List<ExecutorStepItem> steps, List<LogEntryDto> log)
+    {
+        if (_isReplaying) return;
+        _isReplaying = true;
+        _completedSteps.Clear();
+        _animState = new AnimState();
+        _animEvent = null;
+        _replayIndex = -1;
+        StateHasChanged();
+        await Task.Delay(200);
+
+        for (int i = 0; i < steps.Count && i < log.Count; i++)
+        {
+            _replayIndex = i;
+            _animEvent = log[i].StepLabel;
+            ApplyStep(_animState, steps[i]);
+            StateHasChanged();
+
+            await Task.Delay(3000);
+
+            if (log[i].Success)
+                _completedSteps.Add(i);
+
+            if (!log[i].Success) break;
+        }
+
+        _animEvent = null;
+        _replayIndex = -1;
+        _isReplaying = false;
+        StateHasChanged();
+    }
+
+    private static void ApplyStep(AnimState s, ExecutorStepItem step)
+    {
+        switch (step.Module, step.Method)
+        {
+            // ── Power Supply ────────────────────────────────
+            case (TestModule.PowerSupply, TestMethod.PowerOn):
+                s.IsPowerSupplyOn = true;
+                break;
+            case (TestModule.PowerSupply, TestMethod.PowerOff):
+                s.IsPowerSupplyOn = false;
+                break;
+            case (TestModule.PowerSupply, TestMethod.SupplyPower):
+                if (int.TryParse(step.VoltsInput, out var v)) s.SupplyVolts = v;
+                break;
+            case (TestModule.PowerSupply, TestMethod.SupplyCurrent):
+                if (int.TryParse(step.AmpsInput, out var a)) s.SupplyCurrent = a;
+                break;
+
+            // ── Handler ─────────────────────────────────────
+            case (TestModule.Handler, TestMethod.Connect):
+                s.IsHandlerConnected = true;
+                break;
+            case (TestModule.Handler, TestMethod.Disconnect):
+                s.IsHandlerConnected = false;
+                break;
+            case (TestModule.Handler, TestMethod.MoveRight):
+                if (int.TryParse(step.MillimetersInput, out var mr))
+                {
+                    s.HandlerX += mr;
+                    if (s.IsDevicePickedUp) s.DeviceX = s.HandlerX;
+                }
+                break;
+            case (TestModule.Handler, TestMethod.MoveLeft):
+                if (int.TryParse(step.MillimetersInput, out var ml))
+                {
+                    s.HandlerX -= ml;
+                    if (s.IsDevicePickedUp) s.DeviceX = s.HandlerX;
+                }
+                break;
+            case (TestModule.Handler, TestMethod.MoveUp):
+                if (int.TryParse(step.MillimetersInput, out var mu))
+                {
+                    s.HandlerY += mu;
+                    if (s.IsDevicePickedUp) s.DeviceY = s.HandlerY;
+                }
+                break;
+            case (TestModule.Handler, TestMethod.MoveDown):
+                if (int.TryParse(step.MillimetersInput, out var md))
+                {
+                    s.HandlerY -= md;
+                    if (s.IsDevicePickedUp) s.DeviceY = s.HandlerY;
+                }
+                break;
+            case (TestModule.Handler, TestMethod.Rotation):
+                if (int.TryParse(step.RotationInput, out var rd)) s.HandlerRotation += rd;
+                break;
+            case (TestModule.Handler, TestMethod.MoveToBoard):
+                s.HandlerX = 100; s.HandlerY = 0;
+                if (s.IsDevicePickedUp) { s.DeviceX = 100; s.DeviceY = 0; }
+                break;
+            case (TestModule.Handler, TestMethod.MoveToDevice):
+                s.HandlerX = s.DeviceX; s.HandlerY = s.DeviceY;
+                break;
+            case (TestModule.Handler, TestMethod.MoveToOrigin):
+                s.HandlerX = 0; s.HandlerY = 0;
+                if (s.IsDevicePickedUp) { s.DeviceX = 0; s.DeviceY = 0; }
+                break;
+            case (TestModule.Handler, TestMethod.PickUpDevice):
+                s.IsDevicePickedUp = true;
+                break;
+            case (TestModule.Handler, TestMethod.ReleaseDevice):
+                s.DeviceX = s.HandlerX; s.DeviceY = s.HandlerY;
+                s.IsDevicePickedUp = false;
+                break;
+
+            // ── Device ──────────────────────────────────────
+            case (TestModule.Device, TestMethod.Connect):
+                s.IsDeviceConnectedToBoard = true;
+                break;
+            case (TestModule.Device, TestMethod.Disconnect):
+                s.IsDeviceConnectedToBoard = false;
+                break;
+            case (TestModule.Device, TestMethod.ConnectToNetwork):
+                s.IsDeviceConnectedToNetwork = true;
+                break;
+            case (TestModule.Device, TestMethod.SendSms):
+                s.IsSmsInFlight = true;
+                break;
+            case (TestModule.Device, TestMethod.MakeVoiceCall):
+                s.IsVoiceCallActive = true;
+                break;
+            case (TestModule.Device, TestMethod.EndVoiceCall):
+                s.IsVoiceCallActive = false;
+                break;
+            case (TestModule.Device, TestMethod.GoOnYoutube):
+                s.IsYoutubeSessionActive = true;
+                break;
+            case (TestModule.Device, TestMethod.GetOffYoutube):
+                s.IsYoutubeSessionActive = false;
+                break;
+            case (TestModule.Device, TestMethod.StartSpeedTest):
+                s.IsSpeedTestInFlight = true;
+                break;
+
+            // ── Thermal ─────────────────────────────────────
+            case (TestModule.Thermal, TestMethod.Connect):
+                s.IsDeviceConnectedToThermal = true;
+                if (int.TryParse(step.TemperatureInput, out var temp)) s.LastTemperature = temp;
+                break;
+            case (TestModule.Thermal, TestMethod.Disconnect):
+                s.IsDeviceConnectedToThermal = false;
+                break;
+
+            // ── MLT ─────────────────────────────────────────
+            case (TestModule.Mlt, TestMethod.PowerOn):
+                s.IsMltPowered = true;
+                break;
+            case (TestModule.Mlt, TestMethod.PowerOff):
+                s.IsMltPowered = false;
+                break;
+            case (TestModule.Mlt, TestMethod.Connect):
+                s.IsMltConnected = true;
+                break;
+            case (TestModule.Mlt, TestMethod.Disconnect):
+                s.IsMltConnected = false;
+                break;
+            case (TestModule.Mlt, TestMethod.StartTransmission):
+                s.IsMltTransmissionStarted = true;
+                break;
+            case (TestModule.Mlt, TestMethod.EndTransmission):
+                s.IsMltTransmissionStarted = false;
+                break;
+            case (TestModule.Mlt, TestMethod.ReceiveSms):
+                s.IsSmsInFlight = false;
+                break;
+            case (TestModule.Mlt, TestMethod.ReceiveVoiceCall):
+                break;
+            case (TestModule.Mlt, TestMethod.ReceiveYoutubeRequest):
+                break;
+            case (TestModule.Mlt, TestMethod.StopSpeedTest):
+                s.IsSpeedTestInFlight = false;
+                break;
         }
     }
 

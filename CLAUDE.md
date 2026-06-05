@@ -49,19 +49,61 @@ Three projects sharing one solution:
 - `Services/UserSession.cs` — in-memory auth session (no persistence across page refreshes).
 - `Services/ApiClient.cs` — thin typed wrapper over `HttpClient`; base URL comes from `wwwroot/appsettings.json` (`ApiBaseUrl`, default `http://localhost:5295`).
 - `Models/ExecutorStepItem.cs` — client-side mutable step with string input fields for binding.
+- `Models/AnimState.cs` — mirrors `TestInstanceState` on the client. Holds all visual state for the animation panel (handler/device XYZ, PSU/MLT/thermal/network flags, active network sessions).
 - `Validation/StepValidation.cs` — input validation (temperature, mm, degrees, volts, amps). Controls Run button.
 - `Validation/StepSequenceValidator.cs` — full state-machine simulation. Walks all steps in order, tracks every state variable, flags each step that would fail with its exact reason. Any flagged step disables Run and highlights the step in red with an inline error message.
-- `Pages/Dashboard.razor` — the main UI. Left pane = collapsible step palette (from `StepCatalog.All`), center = executor drop zone (drag-and-drop via `sltExecutorDrag` JS interop), right = output log. Layout is viewport-locked (100vh) so each panel scrolls independently.
+- `Pages/Dashboard.razor` — the main UI. Three-column layout: left = collapsible step palette, center = executor (top) + output log (bottom, 220px), right = Live View animation panel. Hosts `ReplayAsync` which replays the test step-by-step after the API returns, updating `AnimState` every 3 seconds. Completed steps glow green; the currently-executing step glows blue.
+- `Components/AnimationPanel.razor` — SVG-based 2D side-view animation of the physical test rig. Receives `AnimState` and `ActiveEvent` as parameters. All positions are computed from mm coordinates (1px = 1mm on the X axis). CSS `transition: transform 0.4s ease` on SVG `<g>` groups gives smooth handler/device movement. SVG `<text>` elements are rendered via `MarkupString` helper (`Txt(...)`) to work around Blazor's `<text>` tag conflict with Razor directives.
 
 ## Key data-flow
 
 1. Client `Dashboard.razor` calls `Api.ExecuteTestAsync(new ExecuteTestRequest(userId, steps))`.
 2. `TestRunsController` delegates to `TestExecutorService.ExecuteAsync`.
 3. The service creates a `TestRunEntity`, iterates steps, calls the appropriate private method, records each `TestRunStepEntity`, stops on failure, persists everything, returns `ExecuteTestResponse` with a log and optional failure popup message.
+4. After the response arrives, `Dashboard.razor` fires `ReplayAsync` (fire-and-forget). It walks the same step list, applies each step to `AnimState`, calls `StateHasChanged()`, waits 3 seconds, then marks successful steps in `_completedSteps` before moving on. The `AnimationPanel` re-renders on each state change, animating the SVG scene in sync.
 
 ## SQLite DB location
 
 On macOS: `~/Library/Application Support/SltVirtualTest/sltvirtualtest.db`. Override with `ConnectionStrings:DefaultConnection` in `appsettings.json`.
+
+---
+
+## Animation Panel
+
+The Live View panel (`Components/AnimationPanel.razor`) is a 480×240 SVG side-view of the physical rig.
+
+**SVG coordinate system**
+- X axis: `TrackLeft (70) + mm * 1.0` → 1 px per mm. Origin (0 mm) at x=70, board (100 mm) at x=170, device default (300 mm) at x=370.
+- Y axis: `FloorY (190) - mm * 0.4` → gripper rises as HandlerY increases. Device center when on floor = y=179.
+- MLT box lives at x=419–476, outside the mm coordinate space.
+
+**What each element shows**
+
+| Element | Visual cue |
+|---|---|
+| PSU box | Green LED + green border when on; voltage/current readout |
+| PSU wire to board | Green solid when PSU on; dashed gray when off |
+| Handler rail | Horizontal bar across top |
+| Handler slider | Blue when `IsHandlerConnected`; gray when not |
+| Handler arm | Vertical line from slider to gripper; gripper closes when holding device |
+| DUT chip | Amber glow (`glow-a` filter) when powered; green dot overlay when on network |
+| BOARD | Fixed green PCB rect at x=170 |
+| Thermal overlay | Dashed cyan border around board+device with temperature label |
+| MLT box | Green LED when powered; TX ON/OFF indicator; wifi arcs when transmitting |
+| MLT cable | Dashed blue line to board when `IsMltConnected` |
+| Network beam | Dashed green line from DUT to MLT when `IsDeviceConnectedToNetwork` |
+| SMS | Blue envelope icon + "SMS" label near DUT |
+| Voice call | Green "CALL" box with signal waves |
+| YouTube | Red rect with white play triangle |
+| Speed test | Four ascending blue bars |
+
+**Replay step highlighting (Dashboard.razor)**
+- Currently executing step → blue glow (`.step-replaying`), 3-second hold
+- Completed successfully → permanent green glow (`.step-success`), green step-number badge
+- `_completedSteps` (`HashSet<int>`) accumulates indices of passed steps; cleared on Clear or new run
+
+**Known Blazor quirk**
+SVG `<text>` elements with attributes conflict with Razor's `<text>` directive (RZ1023). All SVG text is rendered via the `Txt(x, y, fill, content, ...)` helper that returns `new MarkupString(...)`. Do not use `<text>` with literal attributes directly in `.razor` files.
 
 ---
 

@@ -1,0 +1,211 @@
+@using SltVirtualTest.Client.Models
+@using SltVirtualTest.Shared.Models
+@using Microsoft.AspNetCore.Components
+
+<div class="anim-wrap">
+    <div class="anim-header-bar">
+        <span class="anim-title">Live View</span>
+        @if (!string.IsNullOrEmpty(ActiveEvent))
+        {
+            <span class="anim-evt">@ActiveEvent</span>
+        }
+    </div>
+
+    <svg class="anim-svg" viewBox="0 0 480 240" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+            <filter id="glow-g" x="-60%" y="-60%" width="220%" height="220%">
+                <feGaussianBlur stdDeviation="3" result="b"/>
+                <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+            <filter id="glow-a" x="-60%" y="-60%" width="220%" height="220%">
+                <feGaussianBlur stdDeviation="2.5" result="b"/>
+                <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+        </defs>
+
+        <!-- PSU wire to board -->
+        <line x1="63" y1="199" x2="@(BX - 34)" y2="199"
+              stroke="@(S.IsPowerSupplyOn ? "#22c55e" : "#1e293b")"
+              stroke-width="2.5"
+              stroke-dasharray="@(S.IsPowerSupplyOn ? "0" : "6,4")"/>
+
+        <!-- ══ POWER SUPPLY ══════════════════════════════ -->
+        <rect x="5" y="48" width="58" height="148" rx="5"
+              fill="#111827"
+              stroke="@(S.IsPowerSupplyOn ? "#22c55e" : "#2d3f56")"
+              stroke-width="@(S.IsPowerSupplyOn ? "2" : "1.5")"/>
+        <circle cx="34" cy="68" r="7"
+                fill="@(S.IsPowerSupplyOn ? "#22c55e" : "#374151")"
+                filter="@(S.IsPowerSupplyOn ? "url(#glow-g)" : "none")"/>
+        @Txt(34, 86, "#64748b", "PSU", 10, "middle", bold: true)
+        <rect x="10" y="92" width="46" height="17" rx="2" fill="#0a0f17"/>
+        @Txt(33, 105, S.SupplyVolts.HasValue ? "#60a5fa" : "#374151", S.SupplyVolts.HasValue ? $"{S.SupplyVolts}V" : "--V")
+        <rect x="10" y="113" width="46" height="17" rx="2" fill="#0a0f17"/>
+        @Txt(33, 126, S.SupplyCurrent.HasValue ? "#f97316" : "#374151", S.SupplyCurrent.HasValue ? $"{S.SupplyCurrent}A" : "--A")
+
+        <!-- ══ HANDLER TRACK ═════════════════════════════ -->
+        <rect x="70" y="26" width="362" height="11" rx="4" fill="#1e293b" stroke="#334155" stroke-width="1.5"/>
+        @Txt(251, 22, "#334155", "HANDLER RAIL", 7, "middle")
+
+        <!-- ══ HANDLER ARM (translates X only) ═══════════ -->
+        <g style="transition: transform 0.4s ease" transform="@($"translate({Hx},0)")">
+            <rect x="-17" y="22" width="34" height="20" rx="4"
+                  fill="@(S.IsHandlerConnected ? "#1d4ed8" : "#374151")"
+                  stroke="@(S.IsHandlerConnected ? "#60a5fa" : "#4b5563")"
+                  stroke-width="1.5"/>
+            <line x1="0" y1="42" x2="0" y2="@Gy"
+                  stroke="@(S.IsHandlerConnected ? "#3b82f6" : "#475569")"
+                  stroke-width="3.5" stroke-linecap="round"/>
+            @if (S.IsDevicePickedUp)
+            {
+                <!-- Closed gripper -->
+                <line x1="-9" y1="@(Gy - 12)" x2="-9" y2="@Gy" stroke="#3b82f6" stroke-width="3" stroke-linecap="round"/>
+                <line x1="9" y1="@(Gy - 12)" x2="9" y2="@Gy" stroke="#3b82f6" stroke-width="3" stroke-linecap="round"/>
+                <line x1="-9" y1="@Gy" x2="9" y2="@Gy" stroke="#3b82f6" stroke-width="3" stroke-linecap="round"/>
+            }
+            else
+            {
+                <!-- Open gripper -->
+                <line x1="-16" y1="@(Gy - 12)" x2="-16" y2="@Gy"
+                      stroke="@(S.IsHandlerConnected ? "#3b82f6" : "#475569")"
+                      stroke-width="2.5" stroke-linecap="round"/>
+                <line x1="16" y1="@(Gy - 12)" x2="16" y2="@Gy"
+                      stroke="@(S.IsHandlerConnected ? "#3b82f6" : "#475569")"
+                      stroke-width="2.5" stroke-linecap="round"/>
+            }
+        </g>
+
+        <!-- ══ BOARD (fixed at 100 mm) ═══════════════════ -->
+        <rect x="@(BX - 34)" y="190" width="68" height="22" rx="3"
+              fill="#14532d" stroke="#16a34a" stroke-width="1.5"/>
+        @Txt(BX, 205, "#86efac", "BOARD", 9, "middle", bold: true)
+
+        <!-- Thermal overlay -->
+        @if (S.IsDeviceConnectedToThermal)
+        {
+            <rect x="@(BX - 38)" y="@(DY - 28)" width="76" height="54" rx="5"
+                  fill="rgba(56,189,248,0.05)" stroke="#38bdf8" stroke-width="1.5" stroke-dasharray="5,3"/>
+            @Txt(BX, DY - 33, "#38bdf8", $"THERMAL {(S.LastTemperature.HasValue ? $"{S.LastTemperature}°C" : "")}", 8)
+        }
+
+        <!-- ══ DEVICE / DUT (translates X and Y) ═════════ -->
+        <g style="transition: transform 0.4s ease" transform="@($"translate({DX},{DY})")">
+            <rect x="-17" y="-12" width="34" height="22" rx="3"
+                  fill="@(IsDevPowered ? "#92400e" : "#3f3f46")"
+                  stroke="@(IsDevPowered ? "#fbbf24" : "#52525b")"
+                  stroke-width="1.5"
+                  filter="@(IsDevPowered ? "url(#glow-a)" : "none")"/>
+            @Txt(0, 4, "white", "DUT", 9, "middle", bold: true)
+            @if (S.IsDeviceConnectedToNetwork)
+            {
+                <circle cx="18" cy="-12" r="5" fill="#22c55e" filter="url(#glow-g)"/>
+            }
+        </g>
+
+        <!-- Network beam: device → MLT -->
+        @if (S.IsDeviceConnectedToNetwork)
+        {
+            <line x1="@(DX + 18)" y1="@DY" x2="420" y2="118"
+                  stroke="#22c55e" stroke-width="1.5" stroke-dasharray="7,4" opacity="0.55"/>
+        }
+
+        <!-- MLT cable to board -->
+        @if (S.IsMltConnected)
+        {
+            <line x1="@(BX + 34)" y1="199" x2="420" y2="118"
+                  stroke="#3b82f6" stroke-width="1.5" stroke-dasharray="5,3" opacity="0.7"/>
+        }
+
+        <!-- ══ MLT BOX ════════════════════════════════════ -->
+        <rect x="419" y="48" width="57" height="150" rx="5"
+              fill="#111827"
+              stroke="@(S.IsMltConnected ? "#3b82f6" : "#2d3f56")"
+              stroke-width="@(S.IsMltConnected ? "2" : "1.5")"/>
+        <circle cx="447" cy="68" r="7"
+                fill="@(S.IsMltPowered ? "#22c55e" : "#374151")"
+                filter="@(S.IsMltPowered ? "url(#glow-g)" : "none")"/>
+        @Txt(447, 86, "#64748b", "MLT", 10, "middle", bold: true)
+        <rect x="425" y="92" width="44" height="17" rx="2" fill="#0a0f17"/>
+        @Txt(447, 105, S.IsMltTransmissionStarted ? "#22c55e" : "#374151", $"TX {(S.IsMltTransmissionStarted ? "ON" : "OFF")}")
+
+        <!-- WiFi arcs when transmitting -->
+        @if (S.IsMltTransmissionStarted)
+        {
+            <path d="M441 125 Q447 117 453 125" fill="none" stroke="#22c55e" stroke-width="2.5"/>
+            <path d="M437 120 Q447 109 457 120" fill="none" stroke="#22c55e" stroke-width="2" opacity="0.6"/>
+            <path d="M433 115 Q447 100 461 115" fill="none" stroke="#22c55e" stroke-width="1.5" opacity="0.3"/>
+        }
+
+        <!-- ══ NETWORK ACTIVITY ICONS ════════════════════ -->
+        @if (S.IsSmsInFlight)
+        {
+            <rect x="@(DX + 20)" y="@(DY - 11)" width="20" height="14" rx="2" fill="#2563eb" opacity="0.95"/>
+            <polyline points="@($"{DX+20},{DY-11} {DX+30},{DY-5} {DX+40},{DY-11}")" fill="none" stroke="white" stroke-width="1.5"/>
+            @Txt(DX + 20, DY + 14, "#60a5fa", "SMS", 7, "start")
+        }
+        @if (S.IsVoiceCallActive)
+        {
+            <rect x="@(DX + 20)" y="@(DY - 15)" width="28" height="20" rx="3" fill="#166534" opacity="0.95"/>
+            @Txt(DX + 34, DY - 2, "#86efac", "CALL", 8, "middle")
+            <path d="@($"M{DX+50},{DY-12} Q{DX+54},{DY-7} {DX+50},{DY-2}")" fill="none" stroke="#22c55e" stroke-width="1.5"/>
+            <path d="@($"M{DX+53},{DY-15} Q{DX+59},{DY-7} {DX+53},{DY+1}")" fill="none" stroke="#22c55e" stroke-width="1" opacity="0.55"/>
+        }
+        @if (S.IsYoutubeSessionActive)
+        {
+            <rect x="@(DX + 20)" y="@(DY - 15)" width="28" height="20" rx="3" fill="#dc2626" opacity="0.95"/>
+            <polygon points="@($"{DX+26},{DY-13} {DX+26},{DY+3} {DX+46},{DY-5}")" fill="white"/>
+        }
+        @if (S.IsSpeedTestInFlight)
+        {
+            <rect x="@(DX + 20)" y="@(DY - 3)" width="5" height="8" rx="1" fill="#3b82f6"/>
+            <rect x="@(DX + 27)" y="@(DY - 8)" width="5" height="13" rx="1" fill="#60a5fa"/>
+            <rect x="@(DX + 34)" y="@(DY - 13)" width="5" height="18" rx="1" fill="#93c5fd"/>
+            <rect x="@(DX + 41)" y="@(DY - 18)" width="5" height="23" rx="1" fill="#bfdbfe"/>
+        }
+
+        <!-- ══ COORDINATE READOUT ════════════════════════ -->
+        @Txt(72, 228, "#2d3f56", $"H:({(int)S.HandlerX},{(int)S.HandlerY})", 8, "start")
+        @Txt(220, 228, "#2d3f56", $"D:({(int)S.DeviceX},{(int)S.DeviceY})", 8, "start")
+        @if (S.HandlerRotation != 0)
+        {
+            @Txt(360, 228, "#4b6b8a", $"R:{(int)S.HandlerRotation}°", 8, "start")
+        }
+    </svg>
+
+    <div class="anim-badges">
+        @if (S.IsPowerSupplyOn)            { <span class="anim-badge anim-psu">PSU ON</span> }
+        @if (S.IsHandlerConnected)         { <span class="anim-badge anim-handler">Handler</span> }
+        @if (S.IsDeviceConnectedToBoard)   { <span class="anim-badge anim-board">Board</span> }
+        @if (S.IsDeviceConnectedToThermal) { <span class="anim-badge anim-thermal">Thermal @(S.LastTemperature.HasValue ? $"{S.LastTemperature}°C" : "")</span> }
+        @if (S.IsMltPowered)               { <span class="anim-badge anim-mlt">MLT</span> }
+        @if (S.IsDeviceConnectedToNetwork) { <span class="anim-badge anim-net">Network</span> }
+    </div>
+</div>
+
+@code {
+    [Parameter] public AnimState State { get; set; } = new();
+    [Parameter] public string? ActiveEvent { get; set; }
+
+    AnimState S => State;
+
+    const int TrackLeft = 70;
+    const int FloorY = 190;
+
+    bool IsDevPowered => S.IsDeviceConnectedToBoard && S.IsPowerSupplyOn;
+
+    int BX => TrackLeft + 100;
+    int Hx => (int)Math.Clamp(TrackLeft + S.HandlerX, 62, 428);
+    int Gy => (int)Math.Max(FloorY - S.HandlerY * 0.4, 55);
+    int DX => (int)Math.Clamp(TrackLeft + S.DeviceX, 62, 428);
+    int DY => S.IsDevicePickedUp ? Gy - 11 : FloorY - 11;
+
+    static MarkupString Txt(int x, int y, string fill, string content,
+                            int fontSize = 9, string anchor = "middle", bool bold = false)
+    {
+        var fw = bold ? " font-weight=\"bold\"" : "";
+        var html = $"<text x=\"{x}\" y=\"{y}\" text-anchor=\"{anchor}\" " +
+                   $"font-size=\"{fontSize}\" fill=\"{fill}\" " +
+                   $"font-family=\"monospace\"{fw}>{content}</text>";
+        return new MarkupString(html);
+    }
+}
